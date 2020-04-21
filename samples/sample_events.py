@@ -12,5 +12,5 @@ async def on_switchscenes(data):
 
 loop.run_until_complete(ws.connect())
 ws.register(on_event) # By not specifying an event to listen to, all events are sent to this callback.
-ws.register(on_sceneswitch, 'SwitchScenes')
+ws.register(on_switchscenes, 'SwitchScenes')
 loop.run_forever()
