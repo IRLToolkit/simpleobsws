@@ -1,8 +1,8 @@
-# obs-ws-py-simple
+# simpleobsws
 A simple obs-websocket library in Python for people who just want JSON output. Core code inspired by [obs-websocket-py](https://github.com/Elektordi/obs-websocket-py)
 
 ## Installing:
-`pip install obs-ws-py-simple` [PyPi Link](https://pypi.org/project/obs-ws-py-simple/)
+`pip install obs-ws-py-simple` [PyPi Link](https://pypi.org/project/simpleobsws/)
 
 ## Docs:
 - Library docs: Not yet
