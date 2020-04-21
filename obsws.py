@@ -5,7 +5,6 @@ import hashlib
 import json
 import uuid
 import time
-import sys
 import inspect
 
 class ConnectionFailure(Exception):
@@ -24,13 +23,13 @@ class obsws:
         self.loop = loop or asyncio.get_event_loop()
         self.recv_task = None
         self.event_functions = []
-        
+
         self.host = host
         self.port = port
         self.password = password
-    
-    async def connect(self)
-        if self.ws.open:
+
+    async def connect(self):
+        if self.ws != None and self.ws.open:
             raise ConnectionFailure('Server is already connected.')
         self.ws = await websockets.connect('ws://{}:{}'.format(self.host, self.port))
         requestpayload = {'message-id':'1', 'request-type':'GetAuthRequired'}
@@ -49,12 +48,12 @@ class obsws:
             if authresult['status'] != 'ok':
                 raise ConnectionFailure('Server returned error to Authenticate request: {}'.format(authresult['error']))
         self.recv_task = self.loop.create_task(self._ws_recv_task())
-    
+
     async def disconnect(self):
         await self.ws.close()
         self.recv_task.cancel()
         self.recv_task = None
-    
+
     async def call(self, request_type, data=None, timeout=15):
         if type(data) != dict and data != None:
             raise MessageFormatError('Input data must be valid dict object')
@@ -70,18 +69,18 @@ class obsws:
         await asyncio.sleep(0.05) # This acts to halve request time on LAN connections for most requests.
         while time.time() < waittimeout:
             if request_id in self.answers:
-                returndata = ws.answers.pop(request_id)
+                returndata = self.answers.pop(request_id)
                 returndata.pop('message-id')
                 return returndata
             await asyncio.sleep(0.1) # Default timeout period. Change this to adjust the polling period for new messages.
         raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request_type, timeout))
 
     def register(self, function, event=None):
-        if inspect.iscouroutinefunction(function) == False:
-            except EventRegistrationError('Registered functions must be async')
+        if inspect.iscoroutinefunction(function) == False:
+            raise EventRegistrationError('Registered functions must be async')
         else:
             self.event_functions.append((function, event))
-        
+
     def unregister(self, function, event=None):
         for c, t in self.event_functions:
             if (c == function) and (event == None or t == event):
@@ -91,15 +90,15 @@ class obsws:
         while self.ws.open:
             message = ''
             try:
-                message = await ws.recv()
+                message = await self.ws.recv()
                 if not message:
                     continue
                 result = json.loads(message)
                 if 'update-type' in result:
+                    # print(result)
                     for callback, trigger in self.event_functions:
-                        if trigger == None or trigger == data['update_type']:
-                            loop.create_task(callback(data))
-                    self.loop.create_task(self._ws_handle_callback(result))
+                        if trigger == None or trigger == result['update_type']:
+                            self.loop.create_task(callback(result))
                 elif 'message-id' in result:
                     self.answers[result['message-id']] = result
                 else:
