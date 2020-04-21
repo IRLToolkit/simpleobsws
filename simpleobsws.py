@@ -95,9 +95,8 @@ class obsws:
                     continue
                 result = json.loads(message)
                 if 'update-type' in result:
-                    # print(result)
                     for callback, trigger in self.event_functions:
-                        if trigger == None or trigger == result['update_type']:
+                        if trigger == None or trigger == result['update-type']:
                             self.loop.create_task(callback(result))
                 elif 'message-id' in result:
                     self.answers[result['message-id']] = result
