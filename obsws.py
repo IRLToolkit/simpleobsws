@@ -6,12 +6,15 @@ import json
 import uuid
 import time
 import sys
+import inspect
 
 class ConnectionFailure(Exception):
     pass
 class MessageTimeout(Exception):
     pass
 class MessageFormatError(Exception):
+    pass
+class EventRegistrationError(Exception):
     pass
 
 class obsws:
@@ -20,6 +23,7 @@ class obsws:
         self.answers = {}
         self.loop = loop or asyncio.get_event_loop()
         self.recv_task = None
+        self.event_functions = []
         
         self.host = host
         self.port = port
@@ -72,7 +76,18 @@ class obsws:
             await asyncio.sleep(0.1) # Default timeout period. Change this to adjust the polling period for new messages.
         raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request_type, timeout))
 
-    async def _ws_recv_task():
+    def register(self, function, event=None):
+        if inspect.iscouroutinefunction(function) == False:
+            except EventRegistrationError('Registered functions must be async')
+        else:
+            self.event_functions.append((function, event))
+        
+    def unregister(self, function, event=None):
+        for c, t in self.event_functions:
+            if (c == function) and (event == None or t == event):
+                self.event_functions.remove((c, t))
+
+    async def _ws_recv_task(self):
         while self.ws.open:
             message = ''
             try:
@@ -81,10 +96,10 @@ class obsws:
                     continue
                 result = json.loads(message)
                 if 'update-type' in result:
-                    pass
-#                    update_type = result['update-type']
-#                    del result['update-type']
-#                    await obsws_handle_event(update_type, result)
+                    for callback, trigger in self.event_functions:
+                        if trigger == None or trigger == data['update_type']:
+                            loop.create_task(callback(data))
+                    self.loop.create_task(self._ws_handle_callback(result))
                 elif 'message-id' in result:
                     self.answers[result['message-id']] = result
                 else:
