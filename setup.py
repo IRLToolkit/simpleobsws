@@ -6,14 +6,14 @@ with open("README.md", "r") as fh:
 requirements = open('requirements.txt', 'rt').readlines()
 
 setuptools.setup(
-    name="obs-ws-py-simple", # Replace with your own username
-    version="0.0.1",
+    name="simpleobsws", # Replace with your own username
+    version="0.0.2",
     author="tt2468",
     author_email="tt2468@gmail.com",
     description="A simple obs-websocket library in async Python for people who just want JSON output.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/IRLToolkit/obs-ws-py-simple",
+    url="https://github.com/IRLToolkit/simpleobsws",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
