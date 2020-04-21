@@ -1,8 +1,8 @@
 import asyncio
-import obsws
+import simpleobsws
 
 loop = asyncio.get_event_loop()
-ws = obsws.obsws(host='127.0.0.1', port=4444, password='MYSecurePassword', loop=loop) # Every possible argument has been passed, but none are required. See lib code for defaults.
+ws = simpleobsws.obsws(host='127.0.0.1', port=4444, password='MYSecurePassword', loop=loop) # Every possible argument has been passed, but none are required. See lib code for defaults.
 
 async def make_request():
     await ws.connect() # Make the connection to OBS-Websocket
