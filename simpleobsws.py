@@ -75,6 +75,18 @@ class obsws:
             await asyncio.sleep(0.1) # Default timeout period. Change this to adjust the polling period for new messages.
         raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request_type, timeout))
 
+    async def emit(self, request_type, data=None):
+        if type(data) != dict and data != None:
+            raise MessageFormatError('Input data must be valid dict object')
+        request_id = str(uuid.uuid1())
+        requestpayload = {'message-id':'emit_{}'.format(request_id), 'request-type':request_type}
+        if data != None:
+            for key in data.keys():
+                if key == 'message-id':
+                    continue
+                requestpayload[key] = data[key]
+        await self.ws.send(json.dumps(requestpayload))
+
     def register(self, function, event=None):
         if inspect.iscoroutinefunction(function) == False:
             raise EventRegistrationError('Registered functions must be async')
@@ -99,6 +111,8 @@ class obsws:
                         if trigger == None or trigger == result['update-type']:
                             self.loop.create_task(callback(result))
                 elif 'message-id' in result:
+                    if result['message-id'].startswith('emit_'): # We drop any responses to emit requests to not leak memory
+                        continue
                     self.answers[result['message-id']] = result
                 else:
                     print('Unknown message: {}'.format(result))
