@@ -31,7 +31,7 @@ class obsws:
     async def connect(self):
         if self.ws != None and self.ws.open:
             raise ConnectionFailure('Server is already connected.')
-        self.ws = await websockets.connect('ws://{}:{}'.format(self.host, self.port))
+        self.ws = await websockets.connect('ws://{}:{}'.format(self.host, self.port), max_size=2**23)
         requestpayload = {'message-id':'1', 'request-type':'GetAuthRequired'}
         await self.ws.send(json.dumps(requestpayload))
         getauthresult = json.loads(await self.ws.recv())
