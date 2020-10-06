@@ -17,12 +17,13 @@ class EventRegistrationError(Exception):
     pass
 
 class obsws:
-    def __init__(self, host='localhost', port=4444, password=None, loop: asyncio.BaseEventLoop=None):
+    def __init__(self, host='localhost', port=4444, password=None, call_poll_delay=100, loop: asyncio.BaseEventLoop=None):
         self.ws = None
         self.answers = {}
         self.loop = loop or asyncio.get_event_loop()
         self.recv_task = None
         self.event_functions = []
+        self.call_poll_delay = call_poll_delay / 1000
 
         self.host = host
         self.port = port
@@ -30,28 +31,29 @@ class obsws:
 
     async def connect(self):
         if self.ws != None and self.ws.open:
-            raise ConnectionFailure('Server is already connected.')
+            raise ConnectionFailure('Server is already connected')
+        self.answers = {}
         self.ws = await websockets.connect('ws://{}:{}'.format(self.host, self.port), max_size=2**23)
-        requestpayload = {'message-id':'1', 'request-type':'GetAuthRequired'}
-        await self.ws.send(json.dumps(requestpayload))
-        getauthresult = json.loads(await self.ws.recv())
-        if getauthresult['status'] != 'ok':
+        self.recv_task = self.loop.create_task(self._ws_recv_task())
+        authResponse = await self.call('GetAuthRequired')
+        if authResponse['status'] != 'ok':
+            await self.disconnect()
             raise ConnectionFailure('Server returned error to GetAuthRequired request: {}'.format(getauthresult['error']))
-        if getauthresult['authRequired']:
+        if authResponse['authRequired']:
             if self.password == None:
+                await self.disconnect()
                 raise ConnectionFailure('A password is required by the server but was not provided')
             secret = base64.b64encode(hashlib.sha256((self.password + getauthresult['salt']).encode('utf-8')).digest())
             auth = base64.b64encode(hashlib.sha256(secret + getauthresult['challenge'].encode('utf-8')).digest()).decode('utf-8')
-            auth_payload = {"request-type": "Authenticate", "message-id": '2', "auth": auth}
-            await self.ws.send(json.dumps(auth_payload))
-            authresult = json.loads(await self.ws.recv())
-            if authresult['status'] != 'ok':
+            authResult = await self.call('Authenticate', {'auth':auth})
+            if authResult['status'] != 'ok':
+                await self.disconnect()
                 raise ConnectionFailure('Server returned error to Authenticate request: {}'.format(authresult['error']))
-        self.recv_task = self.loop.create_task(self._ws_recv_task())
 
     async def disconnect(self):
         await self.ws.close()
-        self.recv_task.cancel()
+        if self.recv_task != None:
+            self.recv_task.cancel()
         self.recv_task = None
 
     async def call(self, request_type, data=None, timeout=15):
@@ -66,13 +68,13 @@ class obsws:
                 requestpayload[key] = data[key]
         await self.ws.send(json.dumps(requestpayload))
         waittimeout = time.time() + timeout
-        await asyncio.sleep(0.05) # This acts to halve request time on LAN connections for most requests.
+        await asyncio.sleep(self.call_poll_delay / 2)
         while time.time() < waittimeout:
             if request_id in self.answers:
                 returndata = self.answers.pop(request_id)
                 returndata.pop('message-id')
                 return returndata
-            await asyncio.sleep(0.1) # Default timeout period. Change this to adjust the polling period for new messages.
+            await asyncio.sleep(self.call_poll_delay)
         raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request_type, timeout))
 
     async def emit(self, request_type, data=None):
