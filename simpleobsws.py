@@ -38,13 +38,13 @@ class obsws:
         authResponse = await self.call('GetAuthRequired')
         if authResponse['status'] != 'ok':
             await self.disconnect()
-            raise ConnectionFailure('Server returned error to GetAuthRequired request: {}'.format(getauthresult['error']))
+            raise ConnectionFailure('Server returned error to GetAuthRequired request: {}'.format(authResponse['error']))
         if authResponse['authRequired']:
             if self.password == None:
                 await self.disconnect()
                 raise ConnectionFailure('A password is required by the server but was not provided')
-            secret = base64.b64encode(hashlib.sha256((self.password + getauthresult['salt']).encode('utf-8')).digest())
-            auth = base64.b64encode(hashlib.sha256(secret + getauthresult['challenge'].encode('utf-8')).digest()).decode('utf-8')
+            secret = base64.b64encode(hashlib.sha256((self.password + authResponse['salt']).encode('utf-8')).digest())
+            auth = base64.b64encode(hashlib.sha256(secret + authResponse['challenge'].encode('utf-8')).digest()).decode('utf-8')
             authResult = await self.call('Authenticate', {'auth':auth})
             if authResult['status'] != 'ok':
                 await self.disconnect()
