@@ -48,7 +48,7 @@ class obsws:
             authResult = await self.call('Authenticate', {'auth':auth})
             if authResult['status'] != 'ok':
                 await self.disconnect()
-                raise ConnectionFailure('Server returned error to Authenticate request: {}'.format(authresult['error']))
+                raise ConnectionFailure('Server returned error to Authenticate request: {}'.format(authResult['error']))
 
     async def disconnect(self):
         await self.ws.close()
