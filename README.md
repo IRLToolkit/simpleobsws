@@ -10,3 +10,9 @@ A simple obs-websocket library in Python for people who just want JSON output. C
 
 ## Samples:
 Samples are located in the samples folder [here.](/samples)
+
+## IRLTookit Links
+
+- https://twitter.com/IRLToolkit
+- https://irltoolkit.com/discord
+- https://irltoolkit.com
