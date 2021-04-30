@@ -1,17 +1,19 @@
+import logging
+logging.basicConfig(level=logging.DEBUG)
 import asyncio
 import simpleobsws
 
-loop = asyncio.get_event_loop()
-ws = simpleobsws.obsws(host='127.0.0.1', port=4444, password='MYSecurePassword', loop=loop) # Every possible argument has been passed, but none are required. See lib code for defaults.
+parameters = simpleobsws.IdentificationParameters(ignoreInvalidMessages=False, ignoreNonFatalRequestChecks=False, eventSubscriptions=(1 << 0)) # Create an IdentificationParameters object (optional for connecting)
+ws = simpleobsws.WebSocketClient(host='localhost', port=4444, password='test', identification_parameters=parameters, call_poll_delay=100) # Every possible argument has been passed, but none are required. See lib code for defaults.
 
 async def make_request():
-    await ws.connect() # Make the connection to OBS-Websocket
-    result = await ws.call('GetVersion') # We get the current OBS version. More request data is not required
-    print(result) # Print the raw json output of the GetVersion request
-    await asyncio.sleep(1)
-    data = {'source':'test_source', 'volume':0.5}
-    result = await ws.call('SetVolume', data) # Make a request with the given data
-    print(result)
-    await ws.disconnect() # Clean things up by disconnecting. Only really required in a few specific situations, but good practice if you are done making requests or listening to events.
+    await ws.connect() # Make the connection to obs-websocket
+    await ws.wait_until_identified() # Wait for the identification handshake to complete
+    request = simpleobsws.Request('GetVersion') # Build a Request object
+    ret = await ws.call(request) # Perform the request
+    if ret.ok(): # Check if the request succeeded
+        print(json.dumps(ret.responseData, indent=2)) # Print the request data
+    await ws.disconnect() # Disconnect from the websocket server cleanly
 
+loop = asyncio.get_event_loop()
 loop.run_until_complete(make_request())

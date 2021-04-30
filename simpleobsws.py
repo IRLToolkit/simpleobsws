@@ -1,3 +1,7 @@
+import logging
+wsLogger = logging.getLogger('websockets')
+wsLogger.setLevel(logging.INFO)
+log = logging.getLogger(__name__)
 import asyncio
 import websockets
 import base64
@@ -6,99 +10,186 @@ import json
 import uuid
 import time
 import inspect
+import enum
+from dataclasses import dataclass
 
-class ConnectionFailure(Exception):
-    pass
+RPC_VERSION = 1
+
+@dataclass
+class IdentificationParameters:
+    ignoreInvalidMessages: bool = None
+    ignoreNonFatalRequestChecks: bool = None
+    eventSubscriptions: int = None
+
+@dataclass
+class Request:
+    requestType: str
+    requestData: dict = None
+
+@dataclass
+class RequestStatus:
+    result: bool = False
+    code: int = 0
+    comment: str = None
+
+@dataclass
+class RequestResponse:
+    requestType: str
+    requestStatus: RequestStatus = RequestStatus()
+    responseData: dict = None
+
+    def has_data(self):
+        return responseData != None
+
+    def ok(self):
+        return requestStatus.result
+
 class MessageTimeout(Exception):
-    pass
-class MessageFormatError(Exception):
     pass
 class EventRegistrationError(Exception):
     pass
+class NotIdentifiedError(Exception):
+    pass
 
-class obsws:
-    def __init__(self, host='localhost', port=4444, password=None, call_poll_delay=100, loop: asyncio.BaseEventLoop=None):
-        self.ws = None
-        self.answers = {}
-        self.loop = loop or asyncio.get_event_loop()
-        self.recv_task = None
-        self.event_functions = []
-        self.call_poll_delay = call_poll_delay / 1000
-
+class WebSocketClient:
+    def __init__(self,
+        host: str = 'localhost',
+        port: int = 4444,
+        password: str = '',
+        identification_parameters: IdentificationParameters = IdentificationParameters(),
+        call_poll_delay=100,
+    ):
         self.host = host
         self.port = port
         self.password = password
+        self.identification_parameters = identification_parameters
+        self.call_poll_delay = call_poll_delay / 1000
+        self.loop = asyncio.get_event_loop()
+
+        self.ws = None
+        self.answers = {}
+        self.identified = False
+        self.recv_task = None
+        self.event_handlers = []
+        self.hello_message = None
 
     async def connect(self):
         if self.ws != None and self.ws.open:
-            raise ConnectionFailure('Server is already connected')
+            log.debug('WebSocket session is already open. Returning early.')
+            return False
         self.answers = {}
+        self.recv_task = None
+        self.identified = False
+        self.hello_message = None
         self.ws = await websockets.connect('ws://{}:{}'.format(self.host, self.port), max_size=2**23)
         self.recv_task = self.loop.create_task(self._ws_recv_task())
-        authResponse = await self.call('GetAuthRequired')
-        if authResponse['status'] != 'ok':
-            await self.disconnect()
-            raise ConnectionFailure('Server returned error to GetAuthRequired request: {}'.format(authResponse['error']))
-        if authResponse['authRequired']:
-            if self.password == None:
-                await self.disconnect()
-                raise ConnectionFailure('A password is required by the server but was not provided')
-            secret = base64.b64encode(hashlib.sha256((self.password + authResponse['salt']).encode('utf-8')).digest())
-            auth = base64.b64encode(hashlib.sha256(secret + authResponse['challenge'].encode('utf-8')).digest()).decode('utf-8')
-            authResult = await self.call('Authenticate', {'auth':auth})
-            if authResult['status'] != 'ok':
-                await self.disconnect()
-                raise ConnectionFailure('Server returned error to Authenticate request: {}'.format(authResult['error']))
+        return True
+
+    async def wait_until_identified(self, timeout: int = 10):
+        if not self.ws.open:
+            log.debug('WebSocket session is not open. Returning early.')
+            return False
+        wait_timeout = time.time() + timeout
+        await asyncio.sleep(self.call_poll_delay / 2)
+        while time.time() < wait_timeout:
+            if self.identified:
+                return True
+            if not self.ws.open:
+                log.debug('WebSocket session is no longer open. Returning early.')
+                return False
+            await asyncio.sleep(self.call_poll_delay)
+        log.warning('Waiting for `Identified` timed out after {} seconds.'.format(timeout))
+        return False
 
     async def disconnect(self):
+        if self.recv_task == None:
+            log.debug('WebSocket session is not open. Returning early.')
+            return False
+        self.recv_task.cancel()
         await self.ws.close()
-        if self.recv_task != None:
-            self.recv_task.cancel()
+        self.ws = None
+        self.answers = {}
         self.recv_task = None
+        self.identified = False
+        self.hello_message = None
+        return True
 
-    async def call(self, request_type, data=None, timeout=15):
-        if type(data) != dict and data != None:
-            raise MessageFormatError('Input data must be valid dict object')
+    async def call(self, request: Request, timeout: int = 15):
+        if not self.identified:
+            raise NotIdentifiedError('Calls to requests cannot be made without being identified with obs-websocket.')
         request_id = str(uuid.uuid1())
-        requestpayload = {'message-id':request_id, 'request-type':request_type}
-        if data != None:
-            for key in data.keys():
-                if key == 'message-id':
-                    continue
-                requestpayload[key] = data[key]
-        await self.ws.send(json.dumps(requestpayload))
-        waittimeout = time.time() + timeout
+        request_payload = {
+            'messageType': 'Request',
+            'requestType': request.requestType,
+            'requestId': request_id
+        }
+        if request.requestData != None:
+            request_payload['requestData'] = request.requestData
+        log.debug('Sending Request message:\n{}'.format(json.dumps(request_payload, indent=2)))
+        await self.ws.send(json.dumps(request_payload))
+        wait_timeout = time.time() + timeout
         await asyncio.sleep(self.call_poll_delay / 2)
-        while time.time() < waittimeout:
+        while time.time() < wait_timeout:
             if request_id in self.answers:
-                returndata = self.answers.pop(request_id)
-                returndata.pop('message-id')
-                return returndata
+                ret = self.answers.pop(request_id)
+                ret.pop('requestId')
+                return _build_request_response(ret)
             await asyncio.sleep(self.call_poll_delay)
         raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request_type, timeout))
 
-    async def emit(self, request_type, data=None):
-        if type(data) != dict and data != None:
-            raise MessageFormatError('Input data must be valid dict object')
+    async def emit(self, request: Request):
+        if not self.identified:
+            raise NotIdentifiedError('Calls to requests cannot be made without being identified with obs-websocket.')
         request_id = str(uuid.uuid1())
-        requestpayload = {'message-id':'emit_{}'.format(request_id), 'request-type':request_type}
-        if data != None:
-            for key in data.keys():
-                if key == 'message-id':
-                    continue
-                requestpayload[key] = data[key]
-        await self.ws.send(json.dumps(requestpayload))
+        request_payload = {
+            'messageType': 'Request',
+            'requestType': request.requestType,
+            'requestId': 'emit_{}'.format(request_id)
+        }
+        if request.requestData != None:
+            request_payload['requestData'] = request.requestData
+        log.debug('Sending Request message:\n{}'.format(json.dumps(request_payload, indent=2)))
+        await self.ws.send(json.dumps(request_payload))
 
-    def register(self, function, event=None):
-        if inspect.iscoroutinefunction(function) == False:
+    def register_event_callback(self, callback, event = None):
+        if not inspect.iscoroutinefunction(callback):
             raise EventRegistrationError('Registered functions must be async')
         else:
-            self.event_functions.append((function, event))
+            self.event_callbacks.append((callback, event))
 
-    def unregister(self, function, event=None):
-        for c, t in self.event_functions:
-            if (c == function) and (event == None or t == event):
-                self.event_functions.remove((c, t))
+    def deregister_event_callback(self, callback, event = None):
+        for c, t in self.event_callbacks.copy():
+            if (c == callback) and (event == None or t == event):
+                self.event_callbacks.remove((c, t))
+
+    def _build_request_response(self, response: dict):
+        if 'responseData' in response:
+            ret = RequestResponse(response['requestType'], responseData=response['responseData'])
+        else:
+            ret = RequestResponse(response['requestType'])
+        ret.requestStatus.result = response['requestStatus']['result']
+        ret.requestStatus.code = response['requestStatus']['code']
+        if 'comment' in response['requestStatus']:
+            ret.requestStatus.comment = response['requestStatus']['comment']
+        return ret
+
+    async def _send_identify(self, password, identification_parameters):
+        if self.hello_message == None:
+            return
+        identify_message = {'messageType': 'Identify'}
+        identify_message['rpcVersion'] = RPC_VERSION
+        if 'authentication' in self.hello_message:
+            secret = base64.b64encode(hashlib.sha256((self.password + self.hello_message['authentication']['salt']).encode('utf-8')).digest())
+            authentication_string = base64.b64encode(hashlib.sha256(secret + (self.hello_message['authentication']['challenge'].encode('utf-8'))).digest()).decode('utf-8')
+            identify_message['authentication'] = authentication_string
+        if self.identification_parameters.ignoreInvalidMessages != None:
+            identify_message['ignoreInvalidMessages'] = self.identification_parameters.ignoreInvalidMessages
+        if self.identification_parameters.ignoreNonFatalRequestChecks != None:
+            identify_message['ignoreNonFatalRequestChecks'] = self.identification_parameters.ignoreNonFatalRequestChecks
+        if self.identification_parameters.eventSubscriptions != None:
+            identify_message['eventSubscriptions'] = self.identification_parameters.eventSubscriptions
+        log.debug('Sending Identify message:\n{}'.format(json.dumps(identify_message, indent=2)))
+        await self.ws.send(json.dumps(identify_message))
 
     async def _ws_recv_task(self):
         while self.ws.open:
@@ -107,16 +198,32 @@ class obsws:
                 message = await self.ws.recv()
                 if not message:
                     continue
-                result = json.loads(message)
-                if 'update-type' in result:
-                    for callback, trigger in self.event_functions:
-                        if trigger == None or trigger == result['update-type']:
-                            self.loop.create_task(callback(result))
-                elif 'message-id' in result:
-                    if result['message-id'].startswith('emit_'): # We drop any responses to emit requests to not leak memory
+                incoming_message = json.loads(message)
+
+                log.debug('Received message:\n{}'.format(json.dumps(incoming_message, indent=2)))
+
+                if 'messageType' not in incoming_message:
+                    log.warning('Received a message which is missing a `messageType`. Will ignore: {}'.format(incoming_message))
+                    continue
+
+                message_type = incoming_message['messageType']
+                if message_type == 'RequestResponse' or message_type == 'RequestBatchResponse':
+                    if incoming_message['requestId'].startswith('emit_'):
                         continue
-                    self.answers[result['message-id']] = result
+                    self.answers[incoming_message['requestId']] = incoming_message
+                elif message_type == 'Event':
+                    for callback, trigger in self.event_callbacks:
+                        if trigger == None or trigger == incoming_message['eventType']:
+                            self.loop.create_task(callback(incoming_message))
+                elif message_type == 'Hello':
+                    self.hello_message = incoming_message
+                    await self._send_identify(self.password, self.identification_parameters)
+                elif message_type == 'Identified':
+                    self.identified = True
                 else:
-                    print('Unknown message: {}'.format(result))
+                    log.warning('Unknown message type: {}'.format(incoming_message))
             except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK):
+                log.debug('The WebSocket connection was closed. Code: {} | Reason: {}'.format(self.ws.close_code, self.ws.close_reason))
                 break
+            except json.JSONDecodeError:
+                continue
