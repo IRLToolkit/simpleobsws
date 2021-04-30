@@ -1,0 +1,3 @@
+build/**
+dist/**
+simpleobsws.egg-info/**
