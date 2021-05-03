@@ -1,6 +1,7 @@
 import logging
 logging.basicConfig(level=logging.DEBUG)
 import asyncio
+import json
 import simpleobsws
 
 parameters = simpleobsws.IdentificationParameters(ignoreInvalidMessages=False, ignoreNonFatalRequestChecks=False, eventSubscriptions=(1 << 0)) # Create an IdentificationParameters object (optional for connecting)
@@ -12,7 +13,7 @@ async def make_request():
     request = simpleobsws.Request('GetVersion') # Build a Request object
     ret = await ws.call(request) # Perform the request
     if ret.ok(): # Check if the request succeeded
-        print(json.dumps(ret.responseData, indent=2)) # Print the request data
+        print("Request succeeded! Response data: {}".format(ret.responseData))
     await ws.disconnect() # Disconnect from the websocket server cleanly
 
 loop = asyncio.get_event_loop()

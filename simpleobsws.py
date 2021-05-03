@@ -39,10 +39,10 @@ class RequestResponse:
     responseData: dict = None
 
     def has_data(self):
-        return responseData != None
+        return self.responseData != None
 
     def ok(self):
-        return requestStatus.result
+        return self.requestStatus.result
 
 class MessageTimeout(Exception):
     pass
@@ -133,7 +133,7 @@ class WebSocketClient:
             if request_id in self.answers:
                 ret = self.answers.pop(request_id)
                 ret.pop('requestId')
-                return _build_request_response(ret)
+                return self._build_request_response(ret)
             await asyncio.sleep(self.call_poll_delay)
         raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request_type, timeout))
 
