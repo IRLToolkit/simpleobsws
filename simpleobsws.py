@@ -260,4 +260,4 @@ class WebSocketClient:
                 break
             except json.JSONDecodeError:
                 continue
-            self.identified = False
+        self.identified = False
