@@ -70,7 +70,7 @@ class WebSocketClient:
         self.answers = {}
         self.identified = False
         self.recv_task = None
-        self.event_handlers = []
+        self.event_callbacks = []
         self.hello_message = None
 
     async def connect(self):
@@ -150,6 +150,39 @@ class WebSocketClient:
             request_payload['requestData'] = request.requestData
         log.debug('Sending Request message:\n{}'.format(json.dumps(request_payload, indent=2)))
         await self.ws.send(json.dumps(request_payload))
+
+    async def call_batch(self, requests: list, timeout: int = 15, halt_on_failure: bool = False):
+        if not self.identified:
+            raise NotIdentifiedError('Calls to requests cannot be made without being identified with obs-websocket.')
+        request_batch_id = str(uuid.uuid1())
+        request_batch_payload = {
+            'messageType': 'RequestBatch',
+            'requestId': request_batch_id,
+            'haltOnFailure': halt_on_failure,
+            'requests': []
+        }
+        for request in requests:
+            request_payload = {
+                'messageType': 'Request',
+                'requestType': request.requestType,
+                'requestId': '0'
+            }
+            if request.requestData != None:
+                request_payload['requestData'] = request.requestData
+            request_batch_payload['requests'].append(request_payload)
+        log.debug('Sending Request batch message:\n{}'.format(json.dumps(request_batch_payload, indent=2)))
+        await self.ws.send(json.dumps(request_batch_payload))
+        wait_timeout = time.time() + timeout
+        await asyncio.sleep(self.call_poll_delay / 2)
+        while time.time() < wait_timeout:
+            if request_batch_id in self.answers:
+                response = self.answers.pop(request_batch_id)
+                ret = []
+                for result in response['results']:
+                    ret.append(self._build_request_response(result))
+                return ret
+            await asyncio.sleep(self.call_poll_delay)
+        raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request_type, timeout))
 
     def register_event_callback(self, callback, event = None):
         if not inspect.iscoroutinefunction(callback):
