@@ -135,7 +135,7 @@ class WebSocketClient:
                 ret.pop('requestId')
                 return self._build_request_response(ret)
             await asyncio.sleep(self.call_poll_delay)
-        raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request_type, timeout))
+        raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request.requestType, timeout))
 
     async def emit(self, request: Request):
         if not self.identified:
