@@ -182,7 +182,7 @@ class WebSocketClient:
                     ret.append(self._build_request_response(result))
                 return ret
             await asyncio.sleep(self.call_poll_delay)
-        raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request_type, timeout))
+        raise MessageTimeout('The batch request timed out after {} seconds.'.format(request, timeout))
 
     def register_event_callback(self, callback, event = None):
         if not inspect.iscoroutinefunction(callback):
