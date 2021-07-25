@@ -243,8 +243,6 @@ class WebSocketClient:
                 if message_type == 'RequestResponse' or message_type == 'RequestBatchResponse':
                     if incoming_message['requestId'].startswith('emit_'):
                         continue
-                    if not incoming_message['requestStatus']['result']:
-                        log.warning('Request with type `{}` failed with code `{}` and message `{}`'.format(incoming_message['requestType'], incoming_message['requestStatus']['code'], incoming_message['requestStatus'].get('comment')))
                     self.answers[incoming_message['requestId']] = incoming_message
                 elif message_type == 'Event':
                     for callback, trigger in self.event_callbacks:
