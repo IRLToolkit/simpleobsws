@@ -248,8 +248,10 @@ class WebSocketClient:
                     self.answers[incoming_message['requestId']] = incoming_message
                 elif message_type == 'Event':
                     for callback, trigger in self.event_callbacks:
-                        if trigger == None or trigger == incoming_message['eventType']:
-                            self.loop.create_task(callback(incoming_message))
+                        if trigger == None:
+                            self.loop.create_task(callback(incoming_message['eventType'], incoming_message['eventData']))
+                        elif trigger == incoming_message['eventType']:
+                            self.loop.create_task(callback(incoming_message['eventData']))
                 elif message_type == 'Hello':
                     self.hello_message = incoming_message
                     await self._send_identify(self.password, self.identification_parameters)
