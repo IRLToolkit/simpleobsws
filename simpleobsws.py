@@ -57,13 +57,15 @@ class WebSocketClient:
         port: int = 4444,
         password: str = '',
         identification_parameters: IdentificationParameters = IdentificationParameters(),
-        call_poll_delay=100,
+        call_poll_delay: int = 100,
+        use_ssl: bool = False
     ):
         self.host = host
         self.port = port
         self.password = password
         self.identification_parameters = identification_parameters
         self.call_poll_delay = call_poll_delay / 1000
+        self.use_ssl = use_ssl
         self.loop = asyncio.get_event_loop()
 
         self.ws = None
@@ -81,7 +83,8 @@ class WebSocketClient:
         self.recv_task = None
         self.identified = False
         self.hello_message = None
-        self.ws = await websockets.connect('ws://{}:{}'.format(self.host, self.port), max_size=2**23)
+        connect_method = 'wss' if self.use_ssl else 'ws'
+        self.ws = await websockets.connect('{}://{}:{}'.format(connect_method, self.host, self.port), max_size=2**23)
         self.recv_task = self.loop.create_task(self._ws_recv_task())
         return True
 
