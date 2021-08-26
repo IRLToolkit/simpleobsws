@@ -195,6 +195,9 @@ class WebSocketClient:
             if (c == callback) and (event == None or t == event):
                 self.event_callbacks.remove((c, t))
 
+    def _get_hello(self):
+        return self.hello_message
+
     def _build_request_response(self, response: dict):
         if 'responseData' in response:
             ret = RequestResponse(response['requestType'], responseData=response['responseData'])
