@@ -1,11 +1,13 @@
+import logging
+logging.basicConfig(level=logging.DEBUG)
 import asyncio
 import simpleobsws
 
 parameters = simpleobsws.IdentificationParameters(ignoreInvalidMessages=False, ignoreNonFatalRequestChecks=False) # Create an IdentificationParameters object (optional for connecting)
-ws = simpleobsws.WebSocketClient(host='localhost', port=4444, password='test', identification_parameters=parameters, call_poll_delay=100) # Every possible argument has been passed, but none are required. See lib code for defaults.
+ws = simpleobsws.WebSocketClient(url='ws://localhost:4444', password='test', identification_parameters=parameters, call_poll_delay=100) # Every possible argument has been passed, but none are required. See lib code for defaults.
 
-async def on_event(eventData):
-    print('New event! Type: {} | Raw Data: {}'.format(eventData['update-type'], eventData)) # Print the event data. Note that `update-type` is also provided in the data
+async def on_event(eventType, eventData):
+    print('New event! Type: {} | Raw Data: {}'.format(eventType, eventData)) # Print the event data. Note that `update-type` is also provided in the data
 
 async def on_switchscenes(eventData):
     print('Scene switched to "{}".'.format(eventData['sceneName']))

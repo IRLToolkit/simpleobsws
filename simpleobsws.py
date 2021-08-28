@@ -53,27 +53,23 @@ class NotIdentifiedError(Exception):
 
 class WebSocketClient:
     def __init__(self,
-        host: str = 'localhost',
-        port: int = 4444,
+        url: str = "ws://localhost:4444",
         password: str = '',
         identification_parameters: IdentificationParameters = IdentificationParameters(),
-        call_poll_delay: int = 100,
-        use_ssl: bool = False
+        call_poll_delay: int = 100
     ):
-        self.host = host
-        self.port = port
+        self.url = url
         self.password = password
         self.identification_parameters = identification_parameters
         self.call_poll_delay = call_poll_delay / 1000
-        self.use_ssl = use_ssl
         self.loop = asyncio.get_event_loop()
 
         self.ws = None
         self.answers = {}
         self.identified = False
         self.recv_task = None
-        self.event_callbacks = []
         self.hello_message = None
+        self.event_callbacks = []
 
     async def connect(self):
         if self.ws != None and self.ws.open:
@@ -83,8 +79,7 @@ class WebSocketClient:
         self.recv_task = None
         self.identified = False
         self.hello_message = None
-        connect_method = 'wss' if self.use_ssl else 'ws'
-        self.ws = await websockets.connect('{}://{}:{}'.format(connect_method, self.host, self.port), max_size=2**23)
+        self.ws = await websockets.connect(self.url, max_size=2**23)
         self.recv_task = self.loop.create_task(self._ws_recv_task())
         return True
 
@@ -112,8 +107,8 @@ class WebSocketClient:
         await self.ws.close()
         self.ws = None
         self.answers = {}
-        self.recv_task = None
         self.identified = False
+        self.recv_task = None
         self.hello_message = None
         return True
 
@@ -122,12 +117,14 @@ class WebSocketClient:
             raise NotIdentifiedError('Calls to requests cannot be made without being identified with obs-websocket.')
         request_id = str(uuid.uuid1())
         request_payload = {
-            'messageType': 'Request',
-            'requestType': request.requestType,
-            'requestId': request_id
+            'op': 6,
+            'd': {
+                'requestType': request.requestType,
+                'requestId': request_id
+            }
         }
         if request.requestData != None:
-            request_payload['requestData'] = request.requestData
+            request_payload['d']['requestData'] = request.requestData
         log.debug('Sending Request message:\n{}'.format(json.dumps(request_payload, indent=2)))
         await self.ws.send(json.dumps(request_payload))
         wait_timeout = time.time() + timeout
@@ -135,22 +132,23 @@ class WebSocketClient:
         while time.time() < wait_timeout:
             if request_id in self.answers:
                 ret = self.answers.pop(request_id)
-                ret.pop('requestId')
                 return self._build_request_response(ret)
             await asyncio.sleep(self.call_poll_delay)
         raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request.requestType, timeout))
 
     async def emit(self, request: Request):
         if not self.identified:
-            raise NotIdentifiedError('Calls to requests cannot be made without being identified with obs-websocket.')
+            raise NotIdentifiedError('Emits to requests cannot be made without being identified with obs-websocket.')
         request_id = str(uuid.uuid1())
         request_payload = {
-            'messageType': 'Request',
-            'requestType': request.requestType,
-            'requestId': 'emit_{}'.format(request_id)
+            'op': 6,
+            'd': {
+                'requestType': request.requestType,
+                'requestId': 'emit_{}'.format(request_id)
+            }
         }
         if request.requestData != None:
-            request_payload['requestData'] = request.requestData
+            request_payload['d']['requestData'] = request.requestData
         log.debug('Sending Request message:\n{}'.format(json.dumps(request_payload, indent=2)))
         await self.ws.send(json.dumps(request_payload))
 
@@ -159,20 +157,20 @@ class WebSocketClient:
             raise NotIdentifiedError('Calls to requests cannot be made without being identified with obs-websocket.')
         request_batch_id = str(uuid.uuid1())
         request_batch_payload = {
-            'messageType': 'RequestBatch',
-            'requestId': request_batch_id,
-            'haltOnFailure': halt_on_failure,
-            'requests': []
+            'op': 8,
+            'd': {
+                'requestId': request_batch_id,
+                'haltOnFailure': halt_on_failure,
+                'requests': []
+            }
         }
         for request in requests:
             request_payload = {
-                'messageType': 'Request',
-                'requestType': request.requestType,
-                'requestId': '0'
+                'requestType': request.requestType
             }
             if request.requestData != None:
                 request_payload['requestData'] = request.requestData
-            request_batch_payload['requests'].append(request_payload)
+            request_batch_payload['d']['requests'].append(request_payload)
         log.debug('Sending Request batch message:\n{}'.format(json.dumps(request_batch_payload, indent=2)))
         await self.ws.send(json.dumps(request_batch_payload))
         wait_timeout = time.time() + timeout
@@ -187,6 +185,28 @@ class WebSocketClient:
             await asyncio.sleep(self.call_poll_delay)
         raise MessageTimeout('The batch request timed out after {} seconds.'.format(request, timeout))
 
+    async def emit_batch(self, requests: list, halt_on_failure: bool = False):
+        if not self.identified:
+            raise NotIdentifiedError('Emits to requests cannot be made without being identified with obs-websocket.')
+        request_batch_id = str(uuid.uuid1())
+        request_batch_payload = {
+            'op': 8,
+            'd': {
+                'requestId': 'emit_{}'.format(request_batch_id),
+                'haltOnFailure': halt_on_failure,
+                'requests': []
+            }
+        }
+        for request in requests:
+            request_payload = {
+                'requestType': request.requestType
+            }
+            if request.requestData != None:
+                request_payload['requestData'] = request.requestData
+            request_batch_payload['d']['requests'].append(request_payload)
+        log.debug('Sending Request batch message:\n{}'.format(json.dumps(request_batch_payload, indent=2)))
+        await self.ws.send(json.dumps(request_batch_payload))
+
     def register_event_callback(self, callback, event = None):
         if not inspect.iscoroutinefunction(callback):
             raise EventRegistrationError('Registered functions must be async')
@@ -198,35 +218,31 @@ class WebSocketClient:
             if (c == callback) and (event == None or t == event):
                 self.event_callbacks.remove((c, t))
 
-    def _get_hello(self):
+    def _get_hello_data(self):
         return self.hello_message
 
     def _build_request_response(self, response: dict):
-        if 'responseData' in response:
-            ret = RequestResponse(response['requestType'], responseData=response['responseData'])
-        else:
-            ret = RequestResponse(response['requestType'])
+        ret = RequestResponse(response['requestType'], responseData = response.get('responseData'))
         ret.requestStatus.result = response['requestStatus']['result']
         ret.requestStatus.code = response['requestStatus']['code']
-        if 'comment' in response['requestStatus']:
-            ret.requestStatus.comment = response['requestStatus']['comment']
+        ret.requestStatus.comment = response['requestStatus'].get('comment')
         return ret
 
     async def _send_identify(self, password, identification_parameters):
         if self.hello_message == None:
             return
-        identify_message = {'messageType': 'Identify'}
-        identify_message['rpcVersion'] = RPC_VERSION
+        identify_message = {'op': 1, 'd': {}}
+        identify_message['d']['rpcVersion'] = RPC_VERSION
         if 'authentication' in self.hello_message:
             secret = base64.b64encode(hashlib.sha256((self.password + self.hello_message['authentication']['salt']).encode('utf-8')).digest())
             authentication_string = base64.b64encode(hashlib.sha256(secret + (self.hello_message['authentication']['challenge'].encode('utf-8'))).digest()).decode('utf-8')
-            identify_message['authentication'] = authentication_string
+            identify_message['d']['authentication'] = authentication_string
         if self.identification_parameters.ignoreInvalidMessages != None:
-            identify_message['ignoreInvalidMessages'] = self.identification_parameters.ignoreInvalidMessages
+            identify_message['d']['ignoreInvalidMessages'] = self.identification_parameters.ignoreInvalidMessages
         if self.identification_parameters.ignoreNonFatalRequestChecks != None:
-            identify_message['ignoreNonFatalRequestChecks'] = self.identification_parameters.ignoreNonFatalRequestChecks
+            identify_message['d']['ignoreNonFatalRequestChecks'] = self.identification_parameters.ignoreNonFatalRequestChecks
         if self.identification_parameters.eventSubscriptions != None:
-            identify_message['eventSubscriptions'] = self.identification_parameters.eventSubscriptions
+            identify_message['d']['eventSubscriptions'] = self.identification_parameters.eventSubscriptions
         log.debug('Sending Identify message:\n{}'.format(json.dumps(identify_message, indent=2)))
         await self.ws.send(json.dumps(identify_message))
 
@@ -237,32 +253,29 @@ class WebSocketClient:
                 message = await self.ws.recv()
                 if not message:
                     continue
-                incoming_message = json.loads(message)
+                incoming_payload = json.loads(message)
 
-                log.debug('Received message:\n{}'.format(json.dumps(incoming_message, indent=2)))
+                log.debug('Received message:\n{}'.format(json.dumps(incoming_payload, indent=2)))
 
-                if 'messageType' not in incoming_message:
-                    log.warning('Received a message which is missing a `messageType`. Will ignore: {}'.format(incoming_message))
-                    continue
-
-                message_type = incoming_message['messageType']
-                if message_type == 'RequestResponse' or message_type == 'RequestBatchResponse':
-                    if incoming_message['requestId'].startswith('emit_'):
+                op_code = incoming_payload['op']
+                data_payload = incoming_payload['d']
+                if op_code == 7 or op_code == 9: # RequestResponse or RequestBatchResponse
+                    if data_payload['requestId'].startswith('emit_'):
                         continue
-                    self.answers[incoming_message['requestId']] = incoming_message
-                elif message_type == 'Event':
+                    self.answers[data_payload['requestId']] = data_payload
+                elif op_code == 5: # Event
                     for callback, trigger in self.event_callbacks:
                         if trigger == None:
-                            self.loop.create_task(callback(incoming_message['eventType'], incoming_message['eventData']))
-                        elif trigger == incoming_message['eventType']:
-                            self.loop.create_task(callback(incoming_message['eventData']))
-                elif message_type == 'Hello':
-                    self.hello_message = incoming_message
+                            self.loop.create_task(callback(data_payload['eventType'], data_payload.get('eventData')))
+                        elif trigger == data_payload['eventType']:
+                            self.loop.create_task(callback(data_payload.get('eventData')))
+                elif op_code == 0: # Hello
+                    self.hello_message = data_payload
                     await self._send_identify(self.password, self.identification_parameters)
-                elif message_type == 'Identified':
+                elif op_code == 3: # Identified
                     self.identified = True
                 else:
-                    log.warning('Unknown message type: {}'.format(incoming_message))
+                    log.warning('Unknown OpCode: {}'.format(op_code))
             except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK):
                 log.debug('The WebSocket connection was closed. Code: {} | Reason: {}'.format(self.ws.close_code, self.ws.close_reason))
                 break

@@ -1,11 +1,10 @@
 import logging
 logging.basicConfig(level=logging.DEBUG)
 import asyncio
-import json
 import simpleobsws
 
 parameters = simpleobsws.IdentificationParameters(ignoreInvalidMessages=False, ignoreNonFatalRequestChecks=False, eventSubscriptions=(1 << 0)) # Create an IdentificationParameters object (optional for connecting)
-ws = simpleobsws.WebSocketClient(host='localhost', port=4444, password='test', identification_parameters=parameters, call_poll_delay=100) # Every possible argument has been passed, but none are required. See lib code for defaults.
+ws = simpleobsws.WebSocketClient(url='ws://localhost:4444', password='test', identification_parameters=parameters, call_poll_delay=100) # Every possible argument has been passed, but none are required. See lib code for defaults.
 
 async def make_request():
     await ws.connect() # Make the connection to obs-websocket

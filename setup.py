@@ -7,7 +7,7 @@ requirements = open('requirements.txt', 'rt').readlines()
 
 setuptools.setup(
     name="simpleobsws",
-    version="1.0.3",
+    version="1.1.0",
     author="tt2468",
     author_email="tt2468@gmail.com",
     description="A simple obs-websocket library in async Python for people who just want JSON output.",
