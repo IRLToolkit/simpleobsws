@@ -12,6 +12,7 @@ import time
 import inspect
 import enum
 from dataclasses import dataclass
+from inspect import signature
 
 RPC_VERSION = 1
 
@@ -266,13 +267,19 @@ class WebSocketClient:
                 elif op_code == 5: # Event
                     for callback, trigger in self.event_callbacks:
                         if trigger == None:
-                            self.loop.create_task(callback(data_payload['eventType'], data_payload.get('eventData')))
+                            params = len(signature(callback).parameters)
+                            if params == 1:
+                                self.loop.create_task(callback(data_payload))
+                            elif params == 2:
+                                self.loop.create_task(callback(data_payload['eventType'], data_payload.get('eventData')))
+                            elif params == 3:
+                                self.loop.create_task(callback(data_payload['eventType'], data_payload.get('eventIntent'), data_payload.get('eventData')))
                         elif trigger == data_payload['eventType']:
                             self.loop.create_task(callback(data_payload.get('eventData')))
                 elif op_code == 0: # Hello
                     self.hello_message = data_payload
                     await self._send_identify(self.password, self.identification_parameters)
-                elif op_code == 3: # Identified
+                elif op_code == 2: # Identified
                     self.identified = True
                 else:
                     log.warning('Unknown OpCode: {}'.format(op_code))
