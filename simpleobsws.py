@@ -16,6 +16,23 @@ class MessageFormatError(Exception):
 class EventRegistrationError(Exception):
     pass
 
+class _TimeoutNotifier:
+    def __init__(self, loop, cond, timeout):
+        self.timed_out = False
+        self.loop = loop
+        self.cond = cond
+        self.timeout = timeout
+    async def run(self):
+        await asyncio.sleep(self.timeout)
+        async with self.cond:
+            self.timed_out = True
+            self.cond.notify_all()
+    async def __aenter__(self):
+        self.timeout_task = self.loop.create_task(self.run())
+        return self
+    async def __aexit__(self, exc_type, exc, tb):
+        self.timeout_task.cancel()
+
 class obsws:
     def __init__(self, host='localhost', port=4444, password=None, call_poll_delay=100, loop: asyncio.BaseEventLoop=None):
         self.ws = None
@@ -23,7 +40,7 @@ class obsws:
         self.loop = loop or asyncio.get_event_loop()
         self.recv_task = None
         self.event_functions = []
-        self.call_poll_delay = call_poll_delay / 1000
+        self.cond = asyncio.Condition()
 
         self.host = host
         self.port = port
@@ -67,14 +84,12 @@ class obsws:
                     continue
                 requestpayload[key] = data[key]
         await self.ws.send(json.dumps(requestpayload))
-        waittimeout = time.time() + timeout
-        await asyncio.sleep(self.call_poll_delay / 2)
-        while time.time() < waittimeout:
+        async with self.cond, _TimeoutNotifier(self.loop, self.cond, timeout) as tn:
+            await self.cond.wait_for(lambda: request_id in self.answers or tn.timed_out)
             if request_id in self.answers:
                 returndata = self.answers.pop(request_id)
                 returndata.pop('message-id')
                 return returndata
-            await asyncio.sleep(self.call_poll_delay)
         raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request_type, timeout))
 
     async def emit(self, request_type, data=None):
@@ -115,7 +130,9 @@ class obsws:
                 elif 'message-id' in result:
                     if result['message-id'].startswith('emit_'): # We drop any responses to emit requests to not leak memory
                         continue
-                    self.answers[result['message-id']] = result
+                    async with self.cond:
+                        self.answers[result['message-id']] = result
+                        self.cond.notify_all()
                 else:
                     print('Unknown message: {}'.format(result))
             except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK):
