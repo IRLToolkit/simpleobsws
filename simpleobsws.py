@@ -16,6 +16,11 @@ from inspect import signature
 
 RPC_VERSION = 1
 
+class RequestBatchExecutionType(Enum):
+    OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_REALTIME = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_REALTIME'
+    OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_FRAME = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_FRAME'
+    OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_PARALLEL = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_PARALLEL'
+
 @dataclass
 class IdentificationParameters:
     ignoreInvalidMessages: bool = None
@@ -153,7 +158,7 @@ class WebSocketClient:
         log.debug('Sending Request message:\n{}'.format(json.dumps(request_payload, indent=2)))
         await self.ws.send(json.dumps(request_payload))
 
-    async def call_batch(self, requests: list, timeout: int = 15, halt_on_failure: bool = False):
+    async def call_batch(self, requests: list, timeout: int = 15, halt_on_failure: bool = False, execution_type: RequestBatchExecutionType = None):
         if not self.identified:
             raise NotIdentifiedError('Calls to requests cannot be made without being identified with obs-websocket.')
         request_batch_id = str(uuid.uuid1())
@@ -165,6 +170,8 @@ class WebSocketClient:
                 'requests': []
             }
         }
+        if execution_type:
+            request_batch_payload['d']['executionType'] = execution_type.value
         for request in requests:
             request_payload = {
                 'requestType': request.requestType
@@ -184,9 +191,9 @@ class WebSocketClient:
                     ret.append(self._build_request_response(result))
                 return ret
             await asyncio.sleep(self.call_poll_delay)
-        raise MessageTimeout('The batch request timed out after {} seconds.'.format(request, timeout))
+        raise MessageTimeout('The request batch timed out after {} seconds.'.format(timeout))
 
-    async def emit_batch(self, requests: list, halt_on_failure: bool = False):
+    async def emit_batch(self, requests: list, halt_on_failure: bool = False, execution_type: RequestBatchExecutionType = None):
         if not self.identified:
             raise NotIdentifiedError('Emits to requests cannot be made without being identified with obs-websocket.')
         request_batch_id = str(uuid.uuid1())
@@ -198,6 +205,8 @@ class WebSocketClient:
                 'requests': []
             }
         }
+        if execution_type:
+            request_batch_payload['d']['executionType'] = execution_type.value
         for request in requests:
             request_payload = {
                 'requestType': request.requestType
