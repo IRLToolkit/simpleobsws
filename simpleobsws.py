@@ -16,10 +16,13 @@ from inspect import signature
 
 RPC_VERSION = 1
 
-class RequestBatchExecutionType(Enum):
+class RequestBatchExecutionType(enum.Enum):
     OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_REALTIME = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_REALTIME'
+    SERIAL_REALTIME = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_REALTIME'
     OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_FRAME = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_FRAME'
+    SERIAL_FRAME = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_FRAME'
     OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_PARALLEL = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_PARALLEL'
+    PARALLEL = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_PARALLEL'
 
 @dataclass
 class IdentificationParameters:
@@ -50,6 +53,11 @@ class RequestResponse:
     def ok(self):
         return self.requestStatus.result
 
+@dataclass
+class _ResponseWaiter:
+    cond: asyncio.Condition = asyncio.Condition()
+    response_data: dict = None
+
 class MessageTimeout(Exception):
     pass
 class EventRegistrationError(Exception):
@@ -61,21 +69,20 @@ class WebSocketClient:
     def __init__(self,
         url: str = "ws://localhost:4444",
         password: str = '',
-        identification_parameters: IdentificationParameters = IdentificationParameters(),
-        call_poll_delay: int = 100
+        identification_parameters: IdentificationParameters = IdentificationParameters()
     ):
         self.url = url
         self.password = password
         self.identification_parameters = identification_parameters
-        self.call_poll_delay = call_poll_delay / 1000
         self.loop = asyncio.get_event_loop()
 
         self.ws = None
-        self.answers = {}
+        self.waiters = {}
         self.identified = False
         self.recv_task = None
         self.hello_message = None
         self.event_callbacks = []
+        self.cond = asyncio.Condition()
 
     async def connect(self):
         if self.ws != None and self.ws.open:
@@ -93,17 +100,15 @@ class WebSocketClient:
         if not self.ws.open:
             log.debug('WebSocket session is not open. Returning early.')
             return False
-        wait_timeout = time.time() + timeout
-        await asyncio.sleep(self.call_poll_delay / 2)
-        while time.time() < wait_timeout:
-            if self.identified:
-                return True
-            if not self.ws.open:
-                log.debug('WebSocket session is no longer open. Returning early.')
-                return False
-            await asyncio.sleep(self.call_poll_delay)
-        log.warning('Waiting for `Identified` timed out after {} seconds.'.format(timeout))
-        return False
+        try:
+            async with self.cond:
+                await asyncio.wait_for(self.cond.wait_for(self.is_identified), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            #if not self.ws.open:
+            #    log.debug('WebSocket session is no longer open. Returning early.')
+            return False
+        
 
     async def disconnect(self):
         if self.recv_task == None:
@@ -132,15 +137,17 @@ class WebSocketClient:
         if request.requestData != None:
             request_payload['d']['requestData'] = request.requestData
         log.debug('Sending Request message:\n{}'.format(json.dumps(request_payload, indent=2)))
-        await self.ws.send(json.dumps(request_payload))
-        wait_timeout = time.time() + timeout
-        await asyncio.sleep(self.call_poll_delay / 2)
-        while time.time() < wait_timeout:
-            if request_id in self.answers:
-                ret = self.answers.pop(request_id)
-                return self._build_request_response(ret)
-            await asyncio.sleep(self.call_poll_delay)
-        raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request.requestType, timeout))
+        waiter = _ResponseWaiter()
+        try:
+            self.waiters[request_id] = waiter
+            await self.ws.send(json.dumps(request_payload))
+            async with waiter.cond:
+                await asyncio.wait_for(waiter.cond.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request.requestType, timeout))
+        finally:
+            del self.waiters[request_id]
+        return self._build_request_response(waiter.data)
 
     async def emit(self, request: Request):
         if not self.identified:
@@ -180,18 +187,20 @@ class WebSocketClient:
                 request_payload['requestData'] = request.requestData
             request_batch_payload['d']['requests'].append(request_payload)
         log.debug('Sending Request batch message:\n{}'.format(json.dumps(request_batch_payload, indent=2)))
-        await self.ws.send(json.dumps(request_batch_payload))
-        wait_timeout = time.time() + timeout
-        await asyncio.sleep(self.call_poll_delay / 2)
-        while time.time() < wait_timeout:
-            if request_batch_id in self.answers:
-                response = self.answers.pop(request_batch_id)
-                ret = []
-                for result in response['results']:
-                    ret.append(self._build_request_response(result))
-                return ret
-            await asyncio.sleep(self.call_poll_delay)
-        raise MessageTimeout('The request batch timed out after {} seconds.'.format(timeout))
+        waiter = _ResponseWaiter()
+        try:
+            self.waiters[request_batch_id] = waiter
+            await self.ws.send(json.dumps(request_batch_payload))
+            async with waiter.cond:
+                await asyncio.wait_for(waiter.cond.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            raise MessageTimeout('The request batch timed out after {} seconds.'.format(timeout))
+        finally:
+            del self.waiters[request_batch_id]
+        ret = []
+        for result in waiter.data['results']:
+            ret.append(self._build_request_response(result))
+        return ret
 
     async def emit_batch(self, requests: list, halt_on_failure: bool = False, execution_type: RequestBatchExecutionType = None):
         if not self.identified:
@@ -228,6 +237,9 @@ class WebSocketClient:
             if (c == callback) and (event == None or t == event):
                 self.event_callbacks.remove((c, t))
 
+    def is_identified(self):
+        return self.identified
+
     def _get_hello_data(self):
         return self.hello_message
 
@@ -260,7 +272,7 @@ class WebSocketClient:
         while self.ws.open:
             message = ''
             try:
-                message = await self.ws.recv()
+                message = await asyncio.wait_for(self.ws.recv(), timeout=5)
                 if not message:
                     continue
                 incoming_payload = json.loads(message)
@@ -270,9 +282,16 @@ class WebSocketClient:
                 op_code = incoming_payload['op']
                 data_payload = incoming_payload['d']
                 if op_code == 7 or op_code == 9: # RequestResponse or RequestBatchResponse
-                    if data_payload['requestId'].startswith('emit_'):
+                    paylod_request_id = data_payload['requestId']
+                    if paylod_request_id.startswith('emit_'):
                         continue
-                    self.answers[data_payload['requestId']] = data_payload
+                    try:
+                        waiter = self.waiters[paylod_request_id]
+                        waiter.data = data_payload
+                        async with waiter.cond:
+                            waiter.cond.notify()
+                    except KeyError:
+                        log.warning('Discarding request response {} because there is no waiter for it.'.format(paylod_request_id))
                 elif op_code == 5: # Event
                     for callback, trigger in self.event_callbacks:
                         if trigger == None:
@@ -290,6 +309,8 @@ class WebSocketClient:
                     await self._send_identify(self.password, self.identification_parameters)
                 elif op_code == 2: # Identified
                     self.identified = True
+                    async with self.cond:
+                        self.cond.notify_all()
                 else:
                     log.warning('Unknown OpCode: {}'.format(op_code))
             except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK):
@@ -297,4 +318,7 @@ class WebSocketClient:
                 break
             except json.JSONDecodeError:
                 continue
+            except asyncio.TimeoutError:
+                async with self.cond:
+                    self.cond.notify_all()
         self.identified = False
