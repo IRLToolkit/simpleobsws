@@ -65,6 +65,14 @@ class EventRegistrationError(Exception):
 class NotIdentifiedError(Exception):
     pass
 
+async def _wait_cond(cond):
+    async with cond:
+        await cond.wait()
+
+async def _wait_for_cond(cond, func):
+    async with cond:
+        await cond.wait_for(func)
+
 class WebSocketClient:
     def __init__(self,
         url: str = "ws://localhost:4444",
@@ -92,7 +100,7 @@ class WebSocketClient:
         self.recv_task = None
         self.identified = False
         self.hello_message = None
-        self.ws = await websockets.connect(self.url, max_size=2**23)
+        self.ws = await websockets.connect(self.url, max_size=2**24)
         self.recv_task = self.loop.create_task(self._ws_recv_task())
         return True
 
@@ -101,12 +109,9 @@ class WebSocketClient:
             log.debug('WebSocket session is not open. Returning early.')
             return False
         try:
-            async with self.cond:
-                await asyncio.wait_for(self.cond.wait_for(self.is_identified), timeout=timeout)
+            await asyncio.wait_for(_wait_for_cond(self.cond, self.is_identified), timeout=timeout)
             return True
         except asyncio.TimeoutError:
-            #if not self.ws.open:
-            #    log.debug('WebSocket session is no longer open. Returning early.')
             return False
         
 
@@ -141,8 +146,7 @@ class WebSocketClient:
         try:
             self.waiters[request_id] = waiter
             await self.ws.send(json.dumps(request_payload))
-            async with waiter.cond:
-                await asyncio.wait_for(waiter.cond.wait(), timeout=timeout)
+            await asyncio.wait_for(_wait_cond(waiter.cond), timeout=timeout)
         except asyncio.TimeoutError:
             raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request.requestType, timeout))
         finally:
@@ -191,8 +195,7 @@ class WebSocketClient:
         try:
             self.waiters[request_batch_id] = waiter
             await self.ws.send(json.dumps(request_batch_payload))
-            async with waiter.cond:
-                await asyncio.wait_for(waiter.cond.wait(), timeout=timeout)
+            await asyncio.wait_for(_wait_cond(waiter.cond), timeout=timeout)
         except asyncio.TimeoutError:
             raise MessageTimeout('The request batch timed out after {} seconds.'.format(timeout))
         finally:
@@ -272,7 +275,7 @@ class WebSocketClient:
         while self.ws.open:
             message = ''
             try:
-                message = await asyncio.wait_for(self.ws.recv(), timeout=5)
+                message = await self.ws.recv()
                 if not message:
                     continue
                 incoming_payload = json.loads(message)
@@ -318,7 +321,4 @@ class WebSocketClient:
                 break
             except json.JSONDecodeError:
                 continue
-            except asyncio.TimeoutError:
-                async with self.cond:
-                    self.cond.notify_all()
         self.identified = False
