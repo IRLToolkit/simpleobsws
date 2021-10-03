@@ -44,7 +44,7 @@ class RequestStatus:
 @dataclass
 class RequestResponse:
     requestType: str = ''
-    requestStatus: RequestStatus = RequestStatus()
+    requestStatus: RequestStatus = field(default_factory=set)
     responseData: dict = None
 
     def has_data(self):
@@ -55,7 +55,7 @@ class RequestResponse:
 
 @dataclass
 class _ResponseWaiter:
-    event: asyncio.Event = asyncio.Event()
+    event: asyncio.Event = field(default_factory=set)
     response_data: dict = None
 
 class MessageTimeout(Exception):
