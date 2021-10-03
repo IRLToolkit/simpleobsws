@@ -146,9 +146,6 @@ class WebSocketClient:
             raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request.requestType, timeout))
         finally:
             del self.waiters[request_id]
-        if waiter.response_data == None:
-            log.warning('Waiter returned no response payload.')
-            return RequestResponse()
         return self._build_request_response(waiter.response_data)
 
     async def emit(self, request: Request):
@@ -198,9 +195,6 @@ class WebSocketClient:
             raise MessageTimeout('The request batch timed out after {} seconds.'.format(timeout))
         finally:
             del self.waiters[request_batch_id]
-        if waiter.response_data == None:
-            log.warning('Waiter returned no batch response payload.')
-            return []
         ret = []
         for result in waiter.response_data['results']:
             ret.append(self._build_request_response(result))
