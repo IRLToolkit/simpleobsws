@@ -55,7 +55,7 @@ class RequestResponse:
 
 @dataclass
 class _ResponseWaiter:
-    cond: asyncio.Condition = asyncio.Condition()
+    event: asyncio.Event = asyncio.Event()
     response_data: dict = None
 
 class MessageTimeout(Exception):
@@ -64,10 +64,6 @@ class EventRegistrationError(Exception):
     pass
 class NotIdentifiedError(Exception):
     pass
-
-async def _wait_cond(cond):
-    async with cond:
-        await cond.wait()
 
 async def _wait_for_cond(cond, func):
     async with cond:
@@ -113,7 +109,6 @@ class WebSocketClient:
             return True
         except asyncio.TimeoutError:
             return False
-        
 
     async def disconnect(self):
         if self.recv_task == None:
@@ -146,7 +141,7 @@ class WebSocketClient:
         try:
             self.waiters[request_id] = waiter
             await self.ws.send(json.dumps(request_payload))
-            await asyncio.wait_for(_wait_cond(waiter.cond), timeout=timeout)
+            await asyncio.wait_for(waiter.event.wait(), timeout=timeout)
         except asyncio.TimeoutError:
             raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request.requestType, timeout))
         finally:
@@ -198,7 +193,7 @@ class WebSocketClient:
         try:
             self.waiters[request_batch_id] = waiter
             await self.ws.send(json.dumps(request_batch_payload))
-            await asyncio.wait_for(_wait_cond(waiter.cond), timeout=timeout)
+            await asyncio.wait_for(waiter.event.wait(), timeout=timeout)
         except asyncio.TimeoutError:
             raise MessageTimeout('The request batch timed out after {} seconds.'.format(timeout))
         finally:
@@ -297,8 +292,7 @@ class WebSocketClient:
                     try:
                         waiter = self.waiters[paylod_request_id]
                         waiter.response_data = data_payload
-                        async with waiter.cond:
-                            waiter.cond.notify()
+                        waiter.event.set()
                     except KeyError:
                         log.warning('Discarding request response {} because there is no waiter for it.'.format(paylod_request_id))
                 elif op_code == 5: # Event
