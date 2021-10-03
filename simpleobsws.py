@@ -43,7 +43,7 @@ class RequestStatus:
 
 @dataclass
 class RequestResponse:
-    requestType: str
+    requestType: str = ''
     requestStatus: RequestStatus = RequestStatus()
     responseData: dict = None
 
@@ -151,7 +151,10 @@ class WebSocketClient:
             raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request.requestType, timeout))
         finally:
             del self.waiters[request_id]
-        return self._build_request_response(waiter.data)
+        if waiter.response_data == None:
+            log.warning('Waiter returned no response payload.')
+            return RequestResponse()
+        return self._build_request_response(waiter.response_data)
 
     async def emit(self, request: Request):
         if not self.identified:
@@ -200,8 +203,11 @@ class WebSocketClient:
             raise MessageTimeout('The request batch timed out after {} seconds.'.format(timeout))
         finally:
             del self.waiters[request_batch_id]
+        if waiter.response_data == None:
+            log.warning('Waiter returned no batch response payload.')
+            return []
         ret = []
-        for result in waiter.data['results']:
+        for result in waiter.response_data['results']:
             ret.append(self._build_request_response(result))
         return ret
 
@@ -290,7 +296,7 @@ class WebSocketClient:
                         continue
                     try:
                         waiter = self.waiters[paylod_request_id]
-                        waiter.data = data_payload
+                        waiter.response_data = data_payload
                         async with waiter.cond:
                             waiter.cond.notify()
                     except KeyError:
