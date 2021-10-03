@@ -11,7 +11,7 @@ import uuid
 import time
 import inspect
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from inspect import signature
 
 RPC_VERSION = 1
@@ -44,7 +44,7 @@ class RequestStatus:
 @dataclass
 class RequestResponse:
     requestType: str = ''
-    requestStatus: RequestStatus = field(default_factory=set)
+    requestStatus: RequestStatus = field(default_factory=RequestStatus)
     responseData: dict = None
 
     def has_data(self):
@@ -55,7 +55,7 @@ class RequestResponse:
 
 @dataclass
 class _ResponseWaiter:
-    event: asyncio.Event = field(default_factory=set)
+    event: asyncio.Event = field(default_factory=asyncio.Event)
     response_data: dict = None
 
 class MessageTimeout(Exception):
