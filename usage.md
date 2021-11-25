@@ -41,7 +41,7 @@
 
 Connect to the configured obs-websocket server. The library will automatically begin the identification handshake once connected.
 
-### `async def wait_until_identification(self, timeout: int = 10):`
+### `async def wait_until_identified(self, timeout: int = 10):`
 
 - Returns `bool` | `True` if identified, `False` if the timeout was reached.
 
