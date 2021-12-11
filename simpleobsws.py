@@ -17,12 +17,9 @@ from inspect import signature
 RPC_VERSION = 1
 
 class RequestBatchExecutionType(enum.Enum):
-    OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_REALTIME = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_REALTIME'
-    SERIAL_REALTIME = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_REALTIME'
-    OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_FRAME = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_FRAME'
-    SERIAL_FRAME = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_SERIAL_FRAME'
-    OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_PARALLEL = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_PARALLEL'
-    PARALLEL = 'OBS_WEBSOCKET_REQUEST_BATCH_EXECUTION_TYPE_PARALLEL'
+    SerialRealtime = 0
+    SerialFrame = 1
+    Parallel = 2
 
 @dataclass
 class IdentificationParameters:
@@ -34,6 +31,8 @@ class IdentificationParameters:
 class Request:
     requestType: str
     requestData: dict = None
+    inputVariables: dict = None # Request batch only
+    outputVariables: dict = None # Request batch only
 
 @dataclass
 class RequestStatus:
@@ -164,7 +163,7 @@ class WebSocketClient:
         log.debug('Sending Request message:\n{}'.format(json.dumps(request_payload, indent=2)))
         await self.ws.send(json.dumps(request_payload))
 
-    async def call_batch(self, requests: list, timeout: int = 15, halt_on_failure: bool = False, execution_type: RequestBatchExecutionType = None):
+    async def call_batch(self, requests: list, timeout: int = 15, halt_on_failure: bool = False, execution_type: RequestBatchExecutionType = None, variables: dict = None):
         if not self.identified:
             raise NotIdentifiedError('Calls to requests cannot be made without being identified with obs-websocket.')
         request_batch_id = str(uuid.uuid1())
@@ -178,11 +177,17 @@ class WebSocketClient:
         }
         if execution_type:
             request_batch_payload['d']['executionType'] = execution_type.value
+        if variables:
+            request_batch_payload['d']['variables'] = variables
         for request in requests:
             request_payload = {
                 'requestType': request.requestType
             }
-            if request.requestData != None:
+            if request.inputVariables:
+                request_payload['inputVariables'] = request.inputVariables
+            if request.outputVariables:
+                request_payload['outputVariables'] = request.outputVariables
+            if request.requestData:
                 request_payload['requestData'] = request.requestData
             request_batch_payload['d']['requests'].append(request_payload)
         log.debug('Sending Request batch message:\n{}'.format(json.dumps(request_batch_payload, indent=2)))
@@ -218,7 +223,7 @@ class WebSocketClient:
             request_payload = {
                 'requestType': request.requestType
             }
-            if request.requestData != None:
+            if request.requestData:
                 request_payload['requestData'] = request.requestData
             request_batch_payload['d']['requests'].append(request_payload)
         log.debug('Sending Request batch message:\n{}'.format(json.dumps(request_batch_payload, indent=2)))
