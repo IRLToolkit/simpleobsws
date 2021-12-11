@@ -3,8 +3,10 @@ logging.basicConfig(level=logging.DEBUG)
 import asyncio
 import simpleobsws
 
-parameters = simpleobsws.IdentificationParameters(ignoreInvalidMessages=False, ignoreNonFatalRequestChecks=False) # Create an IdentificationParameters object (optional for connecting)
-ws = simpleobsws.WebSocketClient(url='ws://localhost:4444', password='test', identification_parameters=parameters, call_poll_delay=100) # Every possible argument has been passed, but none are required. See lib code for defaults.
+parameters = simpleobsws.IdentificationParameters() # Create an IdentificationParameters object
+parameters.eventSubscriptions = (1 << 0) | (1 << 2) # Subscribe to the General and Scenes categories
+
+ws = simpleobsws.WebSocketClient(url = 'ws://localhost:4444', password = 'test', identification_parameters = parameters) # Every possible argument has been passed, but none are required. See lib code for defaults.
 
 async def on_event(eventType, eventData):
     print('New event! Type: {} | Raw Data: {}'.format(eventType, eventData)) # Print the event data. Note that `update-type` is also provided in the data

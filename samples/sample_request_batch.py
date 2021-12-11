@@ -11,11 +11,16 @@ async def make_request():
     await ws.connect() # Make the connection to obs-websocket
     await ws.wait_until_identified() # Wait for the identification handshake to complete
 
-    request = simpleobsws.Request('GetVersion') # Build a Request object
+    requests = []
 
-    ret = await ws.call(request) # Perform the request
-    if ret.ok(): # Check if the request succeeded
-        print("Request succeeded! Response data: {}".format(ret.responseData))
+    requests.append(simpleobsws.Request('GetVersion')) # Build a Request object, then append it to the batch
+    requests.append(simpleobsws.Request('GetStats')) # Build another request object, and append it
+
+    ret = await ws.call_batch(requests, halt_on_failure = False) # Perform the request batch
+
+    for result in ret:
+        if ret.ok(): # Check if the request succeeded
+            print("Request succeeded! Response data: {}".format(ret.responseData))
 
     await ws.disconnect() # Disconnect from the websocket server cleanly
 
