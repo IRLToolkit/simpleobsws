@@ -86,6 +86,7 @@ class WebSocketClient:
         self.event_callbacks = []
         self.cond = asyncio.Condition()
 
+    # Todo: remove bool return, raise error if already open
     async def connect(self):
         if self.ws != None and self.ws.open:
             log.debug('WebSocket session is already open. Returning early.')
@@ -108,6 +109,7 @@ class WebSocketClient:
         except asyncio.TimeoutError:
             return False
 
+    # Todo: remove bool return, raise error if already closed
     async def disconnect(self):
         if self.recv_task == None:
             log.debug('WebSocket session is not open. Returning early.')
@@ -205,7 +207,7 @@ class WebSocketClient:
             ret.append(self._build_request_response(result))
         return ret
 
-    async def emit_batch(self, requests: list, halt_on_failure: bool = None, execution_type: RequestBatchExecutionType = None):
+    async def emit_batch(self, requests: list, halt_on_failure: bool = None, execution_type: RequestBatchExecutionType = None, variables: dict = None):
         if not self.identified:
             raise NotIdentifiedError('Emits to requests cannot be made without being identified with obs-websocket.')
         request_batch_id = str(uuid.uuid1())
@@ -220,6 +222,8 @@ class WebSocketClient:
             request_batch_payload['d']['haltOnFailure'] = halt_on_failure
         if execution_type:
             request_batch_payload['d']['executionType'] = execution_type.value
+        if variables:
+            request_batch_payload['d']['variables'] = variables
         for request in requests:
             request_payload = {
                 'requestType': request.requestType
@@ -230,13 +234,13 @@ class WebSocketClient:
         log.debug('Sending Request batch message:\n{}'.format(json.dumps(request_batch_payload, indent=2)))
         await self.ws.send(json.dumps(request_batch_payload))
 
-    def register_event_callback(self, callback, event = None):
+    def register_event_callback(self, callback, event: str = None):
         if not inspect.iscoroutinefunction(callback):
             raise EventRegistrationError('Registered functions must be async')
         else:
             self.event_callbacks.append((callback, event))
 
-    def deregister_event_callback(self, callback, event = None):
+    def deregister_event_callback(self, callback, event: str = None):
         for c, t in self.event_callbacks.copy():
             if (c == callback) and (event == None or t == event):
                 self.event_callbacks.remove((c, t))
