@@ -163,7 +163,7 @@ class WebSocketClient:
         log.debug('Sending Request message:\n{}'.format(json.dumps(request_payload, indent=2)))
         await self.ws.send(json.dumps(request_payload))
 
-    async def call_batch(self, requests: list, timeout: int = 15, halt_on_failure: bool = False, execution_type: RequestBatchExecutionType = None, variables: dict = None):
+    async def call_batch(self, requests: list, timeout: int = 15, halt_on_failure: bool = None, execution_type: RequestBatchExecutionType = None, variables: dict = None):
         if not self.identified:
             raise NotIdentifiedError('Calls to requests cannot be made without being identified with obs-websocket.')
         request_batch_id = str(uuid.uuid1())
@@ -171,10 +171,11 @@ class WebSocketClient:
             'op': 8,
             'd': {
                 'requestId': request_batch_id,
-                'haltOnFailure': halt_on_failure,
                 'requests': []
             }
         }
+        if halt_on_failure != None:
+            request_batch_payload['d']['haltOnFailure'] = halt_on_failure
         if execution_type:
             request_batch_payload['d']['executionType'] = execution_type.value
         if variables:
@@ -205,7 +206,7 @@ class WebSocketClient:
             ret.append(self._build_request_response(result))
         return ret
 
-    async def emit_batch(self, requests: list, halt_on_failure: bool = False, execution_type: RequestBatchExecutionType = None):
+    async def emit_batch(self, requests: list, halt_on_failure: bool = None, execution_type: RequestBatchExecutionType = None):
         if not self.identified:
             raise NotIdentifiedError('Emits to requests cannot be made without being identified with obs-websocket.')
         request_batch_id = str(uuid.uuid1())
@@ -213,10 +214,11 @@ class WebSocketClient:
             'op': 8,
             'd': {
                 'requestId': 'emit_{}'.format(request_batch_id),
-                'haltOnFailure': halt_on_failure,
                 'requests': []
             }
         }
+        if halt_on_failure != None:
+            request_batch_payload['d']['haltOnFailure'] = halt_on_failure
         if execution_type:
             request_batch_payload['d']['executionType'] = execution_type.value
         for request in requests:
