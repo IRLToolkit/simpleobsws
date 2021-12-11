@@ -23,7 +23,6 @@ class RequestBatchExecutionType(enum.Enum):
 
 @dataclass
 class IdentificationParameters:
-    ignoreInvalidMessages: bool = None
     ignoreNonFatalRequestChecks: bool = None
     eventSubscriptions: int = None
 
@@ -264,8 +263,6 @@ class WebSocketClient:
             secret = base64.b64encode(hashlib.sha256((self.password + self.hello_message['authentication']['salt']).encode('utf-8')).digest())
             authentication_string = base64.b64encode(hashlib.sha256(secret + (self.hello_message['authentication']['challenge'].encode('utf-8'))).digest()).decode('utf-8')
             identify_message['d']['authentication'] = authentication_string
-        if self.identification_parameters.ignoreInvalidMessages != None:
-            identify_message['d']['ignoreInvalidMessages'] = self.identification_parameters.ignoreInvalidMessages
         if self.identification_parameters.ignoreNonFatalRequestChecks != None:
             identify_message['d']['ignoreNonFatalRequestChecks'] = self.identification_parameters.ignoreNonFatalRequestChecks
         if self.identification_parameters.eventSubscriptions != None:
