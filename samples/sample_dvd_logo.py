@@ -13,7 +13,7 @@ dvdStageSceneName = 'dvd'
 dvdStageSourceName = 'dvdIcon'
 
 # Velocity range, in pixels-per-frame
-velocityMin = 1.5
+velocityMin = 2.5
 velocityMax = 4.5
 
 # =============== NO NEED TO CHANGE ANYTHING BELOW ===============
@@ -132,7 +132,7 @@ async def update_loop():
 loop = asyncio.get_event_loop()
 
 if not loop.run_until_complete(init()):
-    os.exit(1)
+    os._exit(1)
 
 loop.create_task(update_loop())
 
