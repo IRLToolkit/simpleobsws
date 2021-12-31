@@ -19,4 +19,5 @@ async def make_request():
 
     await ws.disconnect() # Disconnect from the websocket server cleanly
 
-asyncio.run(make_request())
+loop = asyncio.get_event_loop()
+loop.run_until_complete(make_request())
