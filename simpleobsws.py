@@ -76,7 +76,6 @@ class WebSocketClient:
         self.url = url
         self.password = password
         self.identification_parameters = identification_parameters
-        self.loop = asyncio.get_event_loop()
 
         self.ws = None
         self.waiters = {}
@@ -96,7 +95,7 @@ class WebSocketClient:
         self.identified = False
         self.hello_message = None
         self.ws = await websockets.connect(self.url, max_size=2**24)
-        self.recv_task = self.loop.create_task(self._ws_recv_task())
+        self.recv_task = asyncio.create_task(self._ws_recv_task())
         return True
 
     async def wait_until_identified(self, timeout: int = 10):
@@ -302,13 +301,13 @@ class WebSocketClient:
                         if trigger == None:
                             params = len(signature(callback).parameters)
                             if params == 1:
-                                self.loop.create_task(callback(data_payload))
+                                asyncio.create_task(callback(data_payload))
                             elif params == 2:
-                                self.loop.create_task(callback(data_payload['eventType'], data_payload.get('eventData')))
+                                asyncio.create_task(callback(data_payload['eventType'], data_payload.get('eventData')))
                             elif params == 3:
-                                self.loop.create_task(callback(data_payload['eventType'], data_payload.get('eventIntent'), data_payload.get('eventData')))
+                                asyncio.create_task(callback(data_payload['eventType'], data_payload.get('eventIntent'), data_payload.get('eventData')))
                         elif trigger == data_payload['eventType']:
-                            self.loop.create_task(callback(data_payload.get('eventData')))
+                            asyncio.create_task(callback(data_payload.get('eventData')))
                 elif op_code == 0: # Hello
                     self.hello_message = data_payload
                     await self._send_identify(self.password, self.identification_parameters)
