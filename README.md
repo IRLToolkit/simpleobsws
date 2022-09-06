@@ -18,6 +18,6 @@ Samples are located in the samples folder [here.](/samples)
 
 ## IRLTookit Links
 
+- Please go to the [obs-websocket Discord](https://discord.gg/WBaSQ3A) for support.
 - https://twitter.com/IRLToolkit
-- https://irltoolkit.com/discord
 - https://irltoolkit.com
