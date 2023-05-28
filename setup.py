@@ -3,7 +3,10 @@ import setuptools
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
-requirements = open('requirements.txt', 'rt').readlines()
+requirements = [
+    'websockets',
+    'msgpack'
+]
 
 setuptools.setup(
     name="simpleobsws",
