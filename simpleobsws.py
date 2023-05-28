@@ -7,6 +7,7 @@ import websockets
 import base64
 import hashlib
 import json
+import msgpack
 import uuid
 import time
 import inspect
@@ -77,6 +78,7 @@ class WebSocketClient:
         self.password = password
         self.identification_parameters = identification_parameters
 
+        self.http_headers = {}
         self.ws = None
         self.waiters = {}
         self.identified = False
@@ -94,7 +96,7 @@ class WebSocketClient:
         self.recv_task = None
         self.identified = False
         self.hello_message = None
-        self.ws = await websockets.connect(self.url, max_size=2**24)
+        self.ws = await websockets.connect(self.url, subprotocols = ['obswebsocket.msgpack'], extra_headers = self.http_headers, max_size=2**24)
         self.recv_task = asyncio.create_task(self._ws_recv_task())
         return True
 
@@ -139,7 +141,7 @@ class WebSocketClient:
         waiter = _ResponseWaiter()
         try:
             self.waiters[request_id] = waiter
-            await self.ws.send(json.dumps(request_payload))
+            await self.ws.send(msgpack.packb(request_payload))
             await asyncio.wait_for(waiter.event.wait(), timeout=timeout)
         except asyncio.TimeoutError:
             raise MessageTimeout('The request with type {} timed out after {} seconds.'.format(request.requestType, timeout))
@@ -161,7 +163,7 @@ class WebSocketClient:
         if request.requestData != None:
             request_payload['d']['requestData'] = request.requestData
         log.debug('Sending Request message:\n{}'.format(json.dumps(request_payload, indent=2)))
-        await self.ws.send(json.dumps(request_payload))
+        await self.ws.send(msgpack.packb(request_payload))
 
     async def call_batch(self, requests: list, timeout: int = 15, halt_on_failure: bool = None, execution_type: RequestBatchExecutionType = None, variables: dict = None):
         if not self.identified:
@@ -195,7 +197,7 @@ class WebSocketClient:
         waiter = _ResponseWaiter()
         try:
             self.waiters[request_batch_id] = waiter
-            await self.ws.send(json.dumps(request_batch_payload))
+            await self.ws.send(msgpack.packb(request_batch_payload))
             await asyncio.wait_for(waiter.event.wait(), timeout=timeout)
         except asyncio.TimeoutError:
             raise MessageTimeout('The request batch timed out after {} seconds.'.format(timeout))
@@ -231,7 +233,7 @@ class WebSocketClient:
                 request_payload['requestData'] = request.requestData
             request_batch_payload['d']['requests'].append(request_payload)
         log.debug('Sending Request batch message:\n{}'.format(json.dumps(request_batch_payload, indent=2)))
-        await self.ws.send(json.dumps(request_batch_payload))
+        await self.ws.send(msgpack.packb(request_batch_payload))
 
     def register_event_callback(self, callback, event: str = None):
         if not inspect.iscoroutinefunction(callback):
@@ -271,16 +273,16 @@ class WebSocketClient:
         if self.identification_parameters.eventSubscriptions != None:
             identify_message['d']['eventSubscriptions'] = self.identification_parameters.eventSubscriptions
         log.debug('Sending Identify message:\n{}'.format(json.dumps(identify_message, indent=2)))
-        await self.ws.send(json.dumps(identify_message))
+        await self.ws.send(msgpack.packb(identify_message))
 
     async def _ws_recv_task(self):
         while self.ws.open:
             message = ''
             try:
                 message = await self.ws.recv()
-                if not message:
+                if not message or type(message) != bytes:
                     continue
-                incoming_payload = json.loads(message)
+                incoming_payload = msgpack.unpackb(message)
 
                 log.debug('Received message:\n{}'.format(json.dumps(incoming_payload, indent=2)))
 
@@ -320,6 +322,6 @@ class WebSocketClient:
             except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK):
                 log.debug('The WebSocket connection was closed. Code: {} | Reason: {}'.format(self.ws.close_code, self.ws.close_reason))
                 break
-            except json.JSONDecodeError:
+            except (ValueError, msgpack.UnpackException):
                 continue
         self.identified = False
