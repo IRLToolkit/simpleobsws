@@ -21,5 +21,5 @@ async def init():
 loop = asyncio.get_event_loop()
 loop.run_until_complete(init())
 ws.register_event_callback(on_event) # By not specifying an event to listen to, all events are sent to this callback.
-ws.register_event_callback(on_switchscenes, 'SwitchScenes')
+ws.register_event_callback(on_switchscenes, 'CurrentProgramSceneChanged')
 loop.run_forever()
