@@ -96,7 +96,7 @@ class WebSocketClient:
         self.recv_task = None
         self.identified = False
         self.hello_message = None
-        self.ws = await websockets.connect(self.url, subprotocols = ['obswebsocket.msgpack'], extra_headers = self.http_headers, max_size=2**24)
+        self.ws = await websockets.connect(self.url, subprotocols = ['obswebsocket.msgpack'], additional_headers = self.http_headers, max_size=2**24)
         self.recv_task = asyncio.create_task(self._ws_recv_task())
         return True
 
