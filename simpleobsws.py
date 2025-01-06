@@ -80,6 +80,7 @@ class WebSocketClient:
 
         self.http_headers = {}
         self.ws = None
+        self.ws_open = False
         self.waiters = {}
         self.identified = False
         self.recv_task = None
@@ -89,7 +90,7 @@ class WebSocketClient:
 
     # Todo: remove bool return, raise error if already open
     async def connect(self):
-        if self.ws != None and self.ws.open:
+        if self.ws and self.ws_open:
             log.debug('WebSocket session is already open. Returning early.')
             return False
         self.answers = {}
@@ -97,11 +98,12 @@ class WebSocketClient:
         self.identified = False
         self.hello_message = None
         self.ws = await websockets.connect(self.url, subprotocols = ['obswebsocket.msgpack'], additional_headers = self.http_headers, max_size=2**24)
+        self.ws_open = True
         self.recv_task = asyncio.create_task(self._ws_recv_task())
         return True
 
     async def wait_until_identified(self, timeout: int = 10):
-        if not self.ws.open:
+        if not self.ws_open:
             log.debug('WebSocket session is not open. Returning early.')
             return False
         try:
@@ -118,6 +120,7 @@ class WebSocketClient:
         self.recv_task.cancel()
         await self.ws.close()
         self.ws = None
+        self.ws_open = False
         self.answers = {}
         self.identified = False
         self.recv_task = None
@@ -276,7 +279,7 @@ class WebSocketClient:
         await self.ws.send(msgpack.packb(identify_message))
 
     async def _ws_recv_task(self):
-        while self.ws.open:
+        while self.ws_open:
             message = ''
             try:
                 message = await self.ws.recv()
@@ -321,7 +324,9 @@ class WebSocketClient:
                     log.warning('Unknown OpCode: {}'.format(op_code))
             except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK):
                 log.debug('The WebSocket connection was closed. Code: {} | Reason: {}'.format(self.ws.close_code, self.ws.close_reason))
+                self.ws_open = False
                 break
             except (ValueError, msgpack.UnpackException):
                 continue
+        self.ws_open = False
         self.identified = False
