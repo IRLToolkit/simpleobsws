@@ -19,8 +19,8 @@ async def make_request():
     ret = await ws.call_batch(requests, halt_on_failure = False) # Perform the request batch
 
     for result in ret:
-        if ret.ok(): # Check if the request succeeded
-            print("Request succeeded! Response data: {}".format(ret.responseData))
+        if result.ok(): # Check if the request succeeded
+            print("Request succeeded! Response data: {}".format(result.responseData))
 
     await ws.disconnect() # Disconnect from the websocket server cleanly
 
