@@ -10,7 +10,7 @@ requirements = [
 
 setuptools.setup(
     name="simpleobsws",
-    version="1.4.2",
+    version="1.4.3",
     author="tt2468",
     author_email="tt2468@gmail.com",
     description="A simple obs-websocket library in async Python for people who just want JSON output.",

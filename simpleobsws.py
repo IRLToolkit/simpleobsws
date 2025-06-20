@@ -242,12 +242,16 @@ class WebSocketClient:
         if not inspect.iscoroutinefunction(callback):
             raise EventRegistrationError('Registered functions must be async')
         else:
-            self.event_callbacks.append((callback, event))
+            event_callbacks_copy = self.event_callbacks.copy()
+            event_callbacks_copy.append((callback, event))
+            self.event_callbacks = event_callbacks_copy
 
     def deregister_event_callback(self, callback, event: str = None):
-        for c, t in self.event_callbacks.copy():
+        event_callbacks_copy = self.event_callbacks.copy()
+        for c, t in self.event_callbacks: # We can use the old event_callbacks list to avoid our iterator being invalidated
             if (c == callback) and (event == None or t == event):
-                self.event_callbacks.remove((c, t))
+                event_callbacks_copy.remove((c, t))
+        self.event_callbacks = event_callbacks_copy
 
     def is_identified(self):
         return self.identified
